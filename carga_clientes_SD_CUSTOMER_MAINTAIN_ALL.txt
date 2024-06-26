@@ -1,0 +1,2078 @@
+***********************************************************************
+*** Programa        : ZNUC0022
+*** Id do objeto DED: CDDNU3B1002_001
+*** Descrição: Programa de Carga de Clientes - Numerário
+***
+*** Autor : Wanderley Teixeira Junior                    Data: 03/02/09
+***---------------------------------------------------------------------
+*** Tabela Utilizadas:
+***
+*** LFA1     - Mestre de fornecedores
+*** EDIDC    - Reg.controle (IDoc)
+*** EDIDS    - Reg.status (IDoc)
+*** E1LFA1M  - Segmento para dados gerais de fornecedores
+*** E1LFBWM  - Segmento p/categoria IRF no mestre de fornecedores
+*** E1LFM1M  - Segmento p/dados de organização de compras fornec SMD
+*** E1WYT3M  - Segmento para endereços de fornecedores WWS SMD
+*** E1LFBKM  - Segmento para dados bancários do fornecedor SMD
+***
+*** Funções Utilizadas:
+*** Z_B_INIT_INTERFACE - Inicializa a biblioteca de controle
+*** Z_B_LOAD_DATAFILES - Leitura de arquivos
+*** Z_B_MOVE_DATAFILES - Movimenta arquivos
+*** Z_B_DONE_INTERFACE - Finaliza a biblioteca de controle
+***
+*** Includes:
+***   include zbci000z - Template de macros para escrita de LOG
+***                      dos controles da interface
+***
+*** Parâmetros de Entrada:
+***
+*** Arquivos de Entrada:
+***
+*** Arquivos de Saída:
+***
+***
+*** Histórico de Alterações:
+***---------------------------------------------------------------------
+*** Data     |Change #   |Autor		     |Alteração
+***---------------------------------------------------------------------
+*** 03/02/09 |R3DK958583 |Wjunior             |Início do Desenvolvimento
+************************************************************************
+REPORT  zmmc1005c MESSAGE-ID zm NO STANDARD PAGE HEADING.
+
+************************************************************************
+*** Include
+************************************************************************
+INCLUDE: zbci000z,  "Template de macros para escrita de LOG
+         <icon>.    "Utilizado para listar icones no relatorio
+
+************************************************************************
+*** Tabelas do Dicionário de Dados
+************************************************************************
+TABLES : kna1, edids, bnka, e1lfa1m, e1lfm1m,
+         e1lfbkm, e1wyt3m,znut0002.
+
+************************************************************************
+*** Definição de Constantes
+************************************************************************
+CONSTANTS: cc_x(1)       TYPE c VALUE 'X',
+           cc_u(1)       TYPE c VALUE 'U',
+           cc_traco(1)   TYPE c VALUE '-',
+           cc_msgfn(03)  TYPE c VALUE '009',
+           cc_p(01)      TYPE c VALUE 'P',
+           cc_e1lfm1m(7) TYPE c VALUE 'E1LFM1M',
+           cc_e1lfa1m(7) TYPE c VALUE 'E1LFA1M',
+           cc_e1lfbkm(7) TYPE c VALUE 'E1LFBKM',
+           cc_e1wyt3m(7) TYPE c VALUE 'E1WYT3M',
+           cc_53(2)      TYPE c VALUE '53',
+           cc_02(2)      TYPE c VALUE '02',
+           cc_0002(4)    TYPE c VALUE '0002',
+           cc_s(1)       TYPE c VALUE 'S',
+           cc_a(1)       TYPE c VALUE 'A',
+           cc_c(1)       TYPE c VALUE 'C',
+           cc_e(1)       TYPE c VALUE 'E',
+           cc_n(1)       TYPE c VALUE 'N',
+           cc_br(2)      TYPE c VALUE 'BR',
+           cc_ci(2)      TYPE c VALUE 'CI',
+           cc_sp(2)      TYPE c VALUE 'SP',
+           cc_rt(2)      TYPE c VALUE 'RT',
+           cc_brl(3)     TYPE c VALUE 'BRL',
+           cc_cpra(4)    TYPE c VALUE 'CPRA',
+           cc_zcli(4)    TYPE c VALUE 'ZCLI',
+           cc_clip(4)    TYPE c VALUE 'CLIP',
+           cc_clic(4)    TYPE c VALUE 'CLIC',
+           cc_empresa(7) TYPE c VALUE 'Empresa',
+           cc_clie(4)    TYPE c VALUE 'clie',
+           cc_sgtt(4)    TYPE c VALUE 'sgtt',
+           cc_dsc(3)     TYPE c VALUE 'dsc',
+           cc_cliem(4)   TYPE c VALUE 'CLIE',
+           cc_ponto(5)   TYPE c VALUE 'PONTO',
+           cc_loja(4)    TYPE c VALUE 'LOJA',
+           cc_pjur       TYPE lfa1-ktokk         VALUE 'PJUR',
+           cc_lfa11      LIKE bapi4001_1-objtype VALUE 'LFA1',
+*          INICIO WJUNIOR/COMPLEX - 21/08/09
+           cc_pto                    TYPE c VALUE '.',
+           cc_237(4)                 TYPE c VALUE '2372',
+           cc_00000(5)               TYPE n VALUE '00000',
+           cc_000000(6)              TYPE n VALUE '000000',
+           cc_00000000000000(14)     TYPE n VALUE '00000000000000',
+           cc_000000000000000000(18) TYPE n VALUE '000000000000000000'.
+*          FINAL  WJUNIOR/COMPLEX - 21/08/09
+
+************************************************************************
+*** Definição de Tipos - PICS
+************************************************************************
+TYPES:
+* Estrutura de erros
+  BEGIN OF result_type,
+    msg(200)  TYPE c,
+  END OF result_type,
+
+* Estrutura de recebimento dos arquivos
+  BEGIN OF arquivo_type,
+    campo(800) TYPE c, "Linha de cada registro
+  END OF arquivo_type,
+
+* Type para CLIE - Layout 1
+  BEGIN OF clie_clie_type,
+    posicao(5)       TYPE n,
+    tipo_reg(5)      TYPE c,
+    cod_agencia(5)   TYPE c,
+    cta_corrente(18) TYPE c,
+    segmento(6)      TYPE c,
+    agencia(40)      TYPE c,
+    nome_cli(35)     TYPE c,
+    cnpj(16)         TYPE c,
+    endereco(35)     TYPE c,
+    cep(10)          TYPE c,
+    data_ini(8)      TYPE c,
+    regiao(2)        TYPE c,
+    uf(3)            TYPE c,
+    municipio(35)    TYPE c,
+    data_ence(8)     TYPE c,
+  END OF clie_clie_type,
+
+* Type para CLIE - Layout 2
+  BEGIN OF clie_ponto_type,
+    posicao(5)             TYPE n,
+    tipo_regi(5)           TYPE c,
+    cod_ponto(20)          TYPE c,
+    cnpj_ponto(16)         TYPE c,
+    ender_ponto(35)        TYPE c,
+*   INICIO WJUNIOR/COMPLEX - 09/04/2010
+    numero(10)             TYPE c,
+*   FINAL  WJUNIOR/COMPLEX - 09/04/2010
+    cep(10)                TYPE c,
+    uf(3)                  TYPE c,
+    municipio(35)          TYPE c,
+    bairro(40)             TYPE c,
+    transportadora(35)     TYPE c,
+    tipo_atend(20)         TYPE c,
+    atendimento(14)        TYPE c,
+    icms(3)                TYPE c,
+    iss(3)                 TYPE c,
+    frequencia(20)         TYPE c,
+    isento_taxas(3)        TYPE c,
+    proces_origem(15)      TYPE c,
+    proces_destino(15)     TYPE c,
+    centralizadora(15)     TYPE c,
+    data_ini(8)            TYPE c,
+    contr_direta(3)        TYPE c,
+    data_ence(8)           TYPE c,
+    razao(20)              TYPE c,
+    ui(20)                 TYPE c,
+    ci(20)                 TYPE c,
+    limite(15)             TYPE p DECIMALS 2,
+    conv_supri(3)          TYPE c,
+    conv_recolhi(3)        TYPE c,
+    cliente_esp(3)         TYPE c,
+    nr_convenio(20)        TYPE c,
+*   INICIO WJUNIOR/COMPLEX 15/10/09
+    tesou_proc(4)          TYPE c,
+*   FINAL  WJUNIOR/COMPLEX 15/10/09
+  END OF clie_ponto_type,
+
+* Type para SGTT - Layout 1
+  BEGIN OF sgtt_clie_type,
+    posicao(5)          TYPE n,
+    tipo_reg(5)         TYPE c,
+    cnpj(17)            TYPE c,
+    razao_social(40)    TYPE c,
+    endereco(40)        TYPE c,
+    bairro(40)          TYPE c,
+    cep(10)             TYPE c,
+    cidade(40)          TYPE c,
+    uf(3)               TYPE c,
+    contato(30)         TYPE c,
+    ddd(3)              TYPE c,
+    telefone(10)        TYPE c,
+    fax(10)             TYPE c,
+    e_mail(40)          TYPE c,
+    agencia(6)          TYPE c,
+    razao(8)            TYPE c,
+    conta(14)           TYPE c,
+    cliente(17)         TYPE c,
+    transportadora(17)  TYPE c,
+  END OF sgtt_clie_type,
+
+* Type para SGTT - Layout 2
+  BEGIN OF sgtt_loja_type,
+    posicao(5)          TYPE n,
+    tipo_reg(5)         TYPE c,
+    cnpj(17)            TYPE c,
+    razao_social(40)    TYPE c,
+    nome_fant(30)       TYPE c,
+    mnemonico(20)       TYPE c,
+    endereco(40)        TYPE c,
+    bairro(40)          TYPE c,
+    cep(10)             TYPE c,
+    cidade(40)          TYPE c,
+    uf(3)               TYPE c,
+    contato(30)         TYPE c,
+    ddd(3)              TYPE c,
+    telefone(10)        TYPE c,
+    fax(10)             TYPE c,
+    e_mail(40)          TYPE c,
+    cliente(17)         TYPE c,
+    transportadora(17)  TYPE c,
+*   INICIO WJUNIOR/COMPLEX 15/10/09
+    tesou_proc(4)       TYPE c,
+*   FINAL  WJUNIOR/COMPLEX 15/10/09
+  END OF sgtt_loja_type,
+
+* Type para DSC - Layout 1
+  BEGIN OF dsc_clie_type,
+    posicao(5)          TYPE n,
+    tipo_reg(5)         TYPE c,
+    cnpj(17)            TYPE c,
+    razao_social(40)    TYPE c,
+    endereco(40)        TYPE c,
+    bairro(40)          TYPE c,
+    cep(10)             TYPE c,
+    cidade(40)          TYPE c,
+    uf(3)               TYPE c,
+    contato(30)         TYPE c,
+    ddd(3)              TYPE c,
+    telefone(10)        TYPE c,
+    fax(10)             TYPE c,
+    e_mail(40)          TYPE c,
+    agencia(6)          TYPE c,
+    razao(8)            TYPE c,
+    conta(14)           TYPE c,
+    cliente(17)         TYPE c,
+    transportadora(17)  TYPE c,
+  END OF dsc_clie_type,
+
+* Type para DSC - Layout 2
+  BEGIN OF dsc_loja_type,
+    posicao(5)          TYPE n,
+    tipo_reg(5)         TYPE c,
+    cnpj(17)            TYPE c,
+    razao_social(40)    TYPE c,
+    nome_fantasia(30)   TYPE c,
+    mnemonico(20)       TYPE c,
+    endereco(40)        TYPE c,
+    bairro(40)          TYPE c,
+    cep(10)             TYPE c,
+    cidade(40)          TYPE c,
+    uf(3)               TYPE c,
+    contato(30)         TYPE c,
+    ddd(3)              TYPE c,
+    telefone(10)        TYPE c,
+    fax(10)             TYPE c,
+    e_mail(40)          TYPE c,
+    cliente(17)         TYPE c,
+    transportadora(17)  TYPE c,
+*   INICIO WJUNIOR/COMPLEX 15/10/09
+    tesou_proc(4)       TYPE c,
+*   FINAL  WJUNIOR/COMPLEX 15/10/09
+  END OF dsc_loja_type,
+
+* STDC1 Transportadora
+  BEGIN OF stcd1_transp_type,
+    stcd1 TYPE lfa1-stcd1,
+  END OF stcd1_transp_type.
+
+************************************************************************
+*** Definição de Variáveis Globais
+************************************************************************
+DATA:
+  gh_arquivo      TYPE arquivo_type      OCCURS 0                 ,"Arquivos
+  gh_result       TYPE result_type       OCCURS 0 WITH HEADER LINE,"Erros
+  gh_clie_clie    TYPE clie_clie_type    OCCURS 0 WITH HEADER LINE, "Layout 1 C
+  gh_clie_ponto   TYPE clie_ponto_type   OCCURS 0 WITH HEADER LINE, "Layout 2 C
+  gh_sgtt_clie    TYPE sgtt_clie_type    OCCURS 0 WITH HEADER LINE, "Layout 1 S
+  gh_sgtt_loja    TYPE sgtt_loja_type    OCCURS 0 WITH HEADER LINE, "Layout 2 S
+  gh_dsc_clie     TYPE dsc_clie_type     OCCURS 0 WITH HEADER LINE, "Layout 1 A
+  gh_dsc_loja     TYPE dsc_loja_type     OCCURS 0 WITH HEADER LINE, "Layout 2 A
+  gh_return_end   LIKE bapiret2          OCCURS 0 WITH HEADER LINE,"Retorno da BAPI
+  gh_stcd1_transp TYPE stcd1_transp_type OCCURS 0 WITH HEADER LINE, "STCD1
+  gh_lfa1_transp  TYPE TABLE OF lfa1              WITH HEADER LINE. "LFA1
+
+DATA: BEGIN OF gh_bapiad1vl OCCURS 0.
+        INCLUDE STRUCTURE bapiad1vl.
+DATA: END OF gh_bapiad1vl.
+
+DATA: BEGIN OF gh_bapiad1vl_x OCCURS 0.
+        INCLUDE STRUCTURE bapiad1vlx.
+DATA: END OF gh_bapiad1vl_x.
+
+DATA: BEGIN OF gh_edi_dd40 OCCURS 0.
+        INCLUDE STRUCTURE edi_dd40.
+DATA: END OF gh_edi_dd40.
+
+* Tabela de LOG
+DATA: gw_log       TYPE TABLE OF zstge0001.
+
+DATA: gw_ctrl_idoc LIKE edi_dc40.
+
+* Estruturas
+DATA:
+  gs_lfa1      TYPE lfa1,                                   "LFA1
+  gs_arquivo   TYPE arquivo_type,   "Arquivos
+  gs_log       LIKE LINE OF gw_log. "LOG
+
+************************************************************************
+*** Definição de Variáveis Globais PICS
+************************************************************************
+DATA:
+  gc_timestamp_lo   LIKE zb001-tmstp,   " timestamp inferior
+  gc_timestamp_hi   LIKE zb001-tmstp,   " timestamp superior
+  gs_restart_rec    LIKE gh_arquivo,    " registro de retomada
+  gi_number         LIKE edidc-docnum,  " número idoc
+  gc_status         LIKE edidc-status,  " status
+  gc_werks_trans(4) TYPE c, "Centro da transportadora
+  gs_adrnr          LIKE lfa1-adrnr,
+  gc_text           TYPE string,        " Messagem
+  gc_stcd1          TYPE lfa1-stcd1,    " CNPJ
+  gc_stcd1_trans    TYPE lfa1-stcd1,    " CNPJ Transportadora
+  gc_lifnr          TYPE lfa1-lifnr,    " Fornecedor
+  gc_kunnr          TYPE kna1-kunnr,    " Cliente
+  gc_regiogroup(8)  TYPE c,             " Regiogroup
+  gc_ext_dstn(4)    TYPE c, "Extensão DSTN
+  gc_arquivo(1)     TYPE c, "Arquivo
+  gn_posi1(5)       TYPE n,                                 " Posição 1
+  gc_parceiro       TYPE c, "Controle de parceiros
+  gc_permite(01)    TYPE c,
+* totalizadores
+  gc_idoc           TYPE c,              " idoc gerado c/ sucesso
+  gc_cliente        TYPE c,              " cliente gerado com sucesso
+  gc_fornec         TYPE c,              " fornecedor alterado com sucesso
+  gc_endereco       TYPE c,              " endereço alterado com sucesso
+  gi_tamanho        TYPE i,              " tamanho do campo
+  gi_lidos          TYPE i,              " registros lidos
+  gi_sucessos       TYPE i,              " registros com sucesso
+  gi_errados        TYPE i,              " registros errados
+* INICIO WJUNIOR/COMPLEX - 09/04/2010
+  gc_numero(10)     TYPE c.              " número do endereço
+* FINAL  WJUNIOR/COMPLEX - 09/04/2010
+
+************************************************************************
+*** Includes
+************************************************************************
+INCLUDE znum0092.
+
+************************************************************************
+*** Definição de Tela de seleções
+************************************************************************
+SELECTION-SCREEN BEGIN OF BLOCK 01 WITH FRAME TITLE text-001.
+PARAMETERS : pc_intid  LIKE zb000-intid     DEFAULT 'ZNUC0022',
+             pc_name   LIKE apqi-groupid,
+             pc_path   LIKE rlgrap-filename DEFAULT '/sap_dados/conversoes/sgnu/cddnu3b1002/in/',
+             pc_file   LIKE rlgrap-filename,
+             pc_back   LIKE rlgrap-filename DEFAULT '/sap_dados/conversoes/sgnu/cddnu3b1002/bkp/',
+             pc_erro   LIKE rlgrap-filename DEFAULT '/sap_dados/conversoes/sgnu/cddnu3b1002/out/'.
+SELECTION-SCREEN END OF BLOCK 01.
+
+SELECTION-SCREEN BEGIN OF BLOCK 02 WITH FRAME TITLE  text-002.
+PARAMETERS : pc_mestp  LIKE edi_dc40-mestyp  DEFAULT 'CREMAS',
+             pc_idoct  LIKE edi_dc40-idoctyp DEFAULT 'CREMAS04',
+             pc_direc  LIKE edi_dc40-direct  DEFAULT '2',
+             pc_tabna  LIKE edi_dc40-tabnam  DEFAULT 'EDI_DC40',
+             pc_rcprt  LIKE edi_dc40-rcvprt,
+             pc_rcprn  LIKE edi_dc40-rcvprn,
+             pc_snpor  LIKE edi_dc40-sndpor,
+             pc_snprt  LIKE edi_dc40-sndprt,
+             pc_snprn  LIKE edi_dc40-sndprn.
+SELECTION-SCREEN END OF BLOCK 02.
+
+SELECTION-SCREEN BEGIN OF BLOCK 03 WITH FRAME TITLE  text-003.
+SELECT-OPTIONS: s_kunnr FOR kna1-kunnr OBLIGATORY.
+SELECTION-SCREEN END OF BLOCK 03.
+
+************************************************************************
+*** Definição de macros
+************************************************************************
+DEFINE add_log.
+
+*-Total de linhas
+  describe table gw_log lines gs_log-tabix.
+
+*-Nova linha
+  gs_log-tabix = gs_log-tabix + 1.
+
+*-Adicionar nova linha
+  gs_log-text    = &1.
+  gs_log-lglvl   = &2.
+
+  append gs_log to gw_log.
+
+END-OF-DEFINITION.
+
+************************************************************************
+*** Validação de Tela
+************************************************************************
+AT SELECTION-SCREEN.
+
+* Valida nome do arquivo
+  PERFORM valida_nome_arquivo.
+
+************************************************************************
+*** Programa principal
+************************************************************************
+START-OF-SELECTION.
+
+* Verifica autorização
+  CLEAR gc_permite.
+  PERFORM checa_permissao CHANGING gc_permite.
+
+  IF gc_permite EQ cc_x.
+
+*   Chama o form init_interface (linha 169)
+    PERFORM init_interface.
+
+*   Chama o form load_datafile responsavel pela leitura do arquivo
+*   (linha)
+    PERFORM load_datafile.
+
+*   Caso existam transportadoras
+    IF NOT gh_stcd1_transp[] IS INITIAL.
+
+*     Seleciona dados da Transportadora
+      PERFORM seleciona_dados_transp.
+
+    ENDIF.
+
+*   Chama o form que contém o processamento principal.
+    PERFORM process_main.
+
+*   chama o form move_datafile responsavel pela movimentação do arquivo
+*   lido para a pasta de Backup
+    PERFORM move_datafile.
+
+*   chama o form done interface responsavel pelo fechamento da
+*   biblioteca PICS e do log
+    PERFORM done_interface.
+
+  ENDIF.
+
+END-OF-SELECTION.
+
+************************************************************************
+*** Form: valida_nome_arquivo
+*** Descrição: Valida o nome do arquivo a ser selecionado
+***
+*** Entrada: PC_FILE
+*** Saída:   PC_FILE
+***
+************************************************************************
+FORM valida_nome_arquivo .
+
+* INICIO WJUNIOR/COMPLEX - 26/10/09
+*  TRANSLATE pc_file TO LOWER CASE.
+* FINAL  WJUNIOR/COMPLEX - 26/10/09
+
+  IF NOT pc_file(4) EQ cc_clie AND
+     NOT pc_file(4) EQ cc_sgtt AND
+     NOT pc_file(3) EQ cc_dsc.
+
+    MESSAGE e208(00) WITH text-012. "Arquivo deve ser CLIE ou SGTT
+
+  ENDIF.
+
+ENDFORM.                    " valida_nome_arquivo
+
+************************************************************************
+*** Form: init_interface
+*** Descrição: Contém a inicialização do log e a chamada da função
+***            Z_B_INIT_INTERFACE.
+***
+*** Entrada: Nenhuma
+*** Saída:   Nenhuma
+***
+************************************************************************
+*** Inicializa a biblioteca de controle, utilizada para a retomada,
+*** controle de timestamps e interface
+FORM init_interface .
+
+* INICIO WJUNIOR/COMPLEX - 26/10/09
+*  TRANSLATE pc_file TO LOWER CASE.
+* FINAL  WJUNIOR/COMPLEX - 26/10/09
+
+  CALL FUNCTION 'Z_B_INIT_INTERFACE'
+    EXPORTING
+      interface_id  = pc_intid
+      session_name  = pc_name
+      err_file_name = pc_file
+      err_file_path = pc_erro
+    IMPORTING
+      timestamp_lo  = gc_timestamp_lo
+      timestamp_hi  = gc_timestamp_hi
+      restart_id0   = gs_restart_rec.
+
+* Inicializa log
+  log_init pc_intid.
+
+ENDFORM.                    " init_interface
+
+************************************************************************
+*** Form: load_datafile
+*** Descrição: Responsavel pela leitura do arquivo de texto que se
+*** encontra no unix, e carregamento de tabela interna com o conteudo
+*** do mesmo, também faz a verificação de registros. utiliza a função
+*** Z_B_LOAD_DATAFILE
+***
+*** Entrada: Nenhuma
+*** Saída:   Nenhuma
+***
+************************************************************************
+FORM load_datafile .
+
+* Chamada da função responsavel pela leitura do arquivo no unix e do
+* caregamento do mesmo para uma tabela interna
+  CALL FUNCTION 'Z_B_LOAD_DATAFILES'
+    EXPORTING
+      file_name      = pc_file
+      path_name      = pc_path
+      sort_clause    = ' '
+      restart_record = gs_restart_rec
+      timestamp_lo   = gc_timestamp_lo
+      timestamp_hi   = gc_timestamp_hi
+    TABLES
+      internal_table = gh_arquivo.
+
+* Caso a tabela tenha retornado registros
+  IF NOT gh_arquivo[] IS INITIAL.
+
+*   Popula tabelas c/layout dos arquivos
+    PERFORM popula_tabelas_layout.
+
+  ENDIF.
+
+ENDFORM.                    " load_datafile
+
+************************************************************************
+*** Form: popula_tabelas_layout
+*** Descrição: Popula tabelas com layouts dos arquivos
+***
+*** Entrada: GH_MESTRE
+*** Saída:   GH_CLIE_CLIE, GH_CLIE_PONTO, GH_SGTT_CLIE, GH_SGTT_LOJA E
+***          GH_SGTT_TRANS
+***
+************************************************************************
+FORM popula_tabelas_layout.
+
+* INICIO WJUNIOR/COMPLEX - 12/04/2010
+  DATA: lc_limite(18) TYPE c.
+* FINAL  WJUNIOR/COMPLEX - 12/04/2010
+
+  CLEAR: gn_posi1.
+
+* Caso seja lido um arquivo Cliente
+  IF pc_file(4) EQ cc_clie.
+
+    LOOP AT gh_arquivo INTO gs_arquivo.
+
+*     Carregar Cliente
+      IF gs_arquivo-campo(4) EQ cc_cliem.
+
+        ADD 1 TO gn_posi1.
+
+        MOVE:
+          gn_posi1                 TO gh_clie_clie-posicao,
+          gs_arquivo-campo(5)      TO gh_clie_clie-tipo_reg,
+          gs_arquivo-campo+5(5)    TO gh_clie_clie-cod_agencia,
+          gs_arquivo-campo+10(18)  TO gh_clie_clie-cta_corrente,
+          gs_arquivo-campo+28(6)   TO gh_clie_clie-segmento,
+          gs_arquivo-campo+34(40)  TO gh_clie_clie-agencia,
+          gs_arquivo-campo+74(35)  TO gh_clie_clie-nome_cli,
+          gs_arquivo-campo+109(16) TO gh_clie_clie-cnpj,
+          gs_arquivo-campo+125(35) TO gh_clie_clie-endereco,
+          gs_arquivo-campo+160(10) TO gh_clie_clie-cep,
+          gs_arquivo-campo+170(8)  TO gh_clie_clie-data_ini,
+          gs_arquivo-campo+178(2)  TO gh_clie_clie-regiao,
+          gs_arquivo-campo+180(3)  TO gh_clie_clie-uf,
+          gs_arquivo-campo+183(35) TO gh_clie_clie-municipio,
+          gs_arquivo-campo+218(8)  TO gh_clie_clie-data_ence.
+
+        APPEND gh_clie_clie.
+        CLEAR  gh_clie_clie.
+
+*     Carregar Ponto
+      ELSEIF gs_arquivo-campo(5) EQ cc_ponto.
+
+*       INICIO WJUNIOR/COMPLEX - 12/04/2010
+        CLEAR lc_limite..
+*       FINAL  WJUNIOR/COMPLEX - 12/04/2010
+
+        MOVE:
+          gn_posi1                 TO gh_clie_ponto-posicao,
+          gs_arquivo-campo(5)      TO gh_clie_ponto-tipo_regi,
+          gs_arquivo-campo+5(20)   TO gh_clie_ponto-cod_ponto,
+          gs_arquivo-campo+25(16)  TO gh_clie_ponto-cnpj_ponto,
+          gs_arquivo-campo+41(35)  TO gh_clie_ponto-ender_ponto,
+*         INICIO WJUNIOR/COMPLEX - 09/04/2010
+*          gs_arquivo-campo+76(10)  TO gh_clie_ponto-cep,
+*          gs_arquivo-campo+86(3)   TO gh_clie_ponto-uf,
+*          gs_arquivo-campo+89(35)  TO gh_clie_ponto-municipio,
+*          gs_arquivo-campo+124(40) TO gh_clie_ponto-bairro,
+*          gs_arquivo-campo+164(35) TO gh_clie_ponto-transportadora,
+*          gs_arquivo-campo+199(20) TO gh_clie_ponto-tipo_atend,
+*          gs_arquivo-campo+219(14) TO gh_clie_ponto-atendimento,
+*          gs_arquivo-campo+233(3)  TO gh_clie_ponto-icms,
+*          gs_arquivo-campo+236(3)  TO gh_clie_ponto-iss,
+*          gs_arquivo-campo+239(20) TO gh_clie_ponto-frequencia,
+*          gs_arquivo-campo+259(3)  TO gh_clie_ponto-isento_taxas,
+*          gs_arquivo-campo+262(15) TO gh_clie_ponto-proces_origem,
+*          gs_arquivo-campo+277(15) TO gh_clie_ponto-proces_destino,
+*          gs_arquivo-campo+292(15) TO gh_clie_ponto-centralizadora,
+*          gs_arquivo-campo+307(8)  TO gh_clie_ponto-data_ini,
+*          gs_arquivo-campo+315(3)  TO gh_clie_ponto-contr_direta,
+*          gs_arquivo-campo+318(8)  TO gh_clie_ponto-data_ence,
+*          gs_arquivo-campo+326(20) TO gh_clie_ponto-razao,
+*          gs_arquivo-campo+346(20) TO gh_clie_ponto-ui,
+*          gs_arquivo-campo+366(20) TO gh_clie_ponto-ci,
+*          gs_arquivo-campo+386(17) TO gh_clie_ponto-limite,
+*          gs_arquivo-campo+403(3)  TO gh_clie_ponto-conv_supri,
+*          gs_arquivo-campo+406(3)  TO gh_clie_ponto-conv_recolhi,
+*          gs_arquivo-campo+409(3)  TO gh_clie_ponto-cliente_esp,
+*          gs_arquivo-campo+412(20) TO gh_clie_ponto-nr_convenio,
+**         INICIO WJUNIOR/COMPLEX 15/10/09
+*          gs_arquivo-campo+432(4)  TO gh_clie_ponto-tesou_proc.
+**         FINAL  WJUNIOR/COMPLEX 15/10/09
+          gs_arquivo-campo+76(10)  TO gh_clie_ponto-numero,
+          gs_arquivo-campo+86(10)  TO gh_clie_ponto-cep,
+          gs_arquivo-campo+96(3)   TO gh_clie_ponto-uf,
+          gs_arquivo-campo+99(35)  TO gh_clie_ponto-municipio,
+          gs_arquivo-campo+134(40) TO gh_clie_ponto-bairro,
+          gs_arquivo-campo+174(35) TO gh_clie_ponto-transportadora,
+          gs_arquivo-campo+209(20) TO gh_clie_ponto-tipo_atend,
+          gs_arquivo-campo+229(14) TO gh_clie_ponto-atendimento,
+          gs_arquivo-campo+243(3)  TO gh_clie_ponto-icms,
+          gs_arquivo-campo+246(3)  TO gh_clie_ponto-iss,
+          gs_arquivo-campo+249(20) TO gh_clie_ponto-frequencia,
+          gs_arquivo-campo+269(3)  TO gh_clie_ponto-isento_taxas,
+          gs_arquivo-campo+272(15) TO gh_clie_ponto-proces_origem,
+          gs_arquivo-campo+287(15) TO gh_clie_ponto-proces_destino,
+          gs_arquivo-campo+302(15) TO gh_clie_ponto-centralizadora,
+          gs_arquivo-campo+317(8)  TO gh_clie_ponto-data_ini,
+          gs_arquivo-campo+325(3)  TO gh_clie_ponto-contr_direta,
+          gs_arquivo-campo+328(8)  TO gh_clie_ponto-data_ence,
+          gs_arquivo-campo+336(20) TO gh_clie_ponto-razao,
+          gs_arquivo-campo+356(20) TO gh_clie_ponto-ui,
+          gs_arquivo-campo+376(20) TO gh_clie_ponto-ci,
+          gs_arquivo-campo+396(17) TO lc_limite,
+          gs_arquivo-campo+413(3)  TO gh_clie_ponto-conv_supri,
+          gs_arquivo-campo+416(3)  TO gh_clie_ponto-conv_recolhi,
+          gs_arquivo-campo+419(3)  TO gh_clie_ponto-cliente_esp,
+          gs_arquivo-campo+422(20) TO gh_clie_ponto-nr_convenio,
+          gs_arquivo-campo+442(4)  TO gh_clie_ponto-tesou_proc.
+
+        CONCATENATE lc_limite(15) lc_limite+15(2) INTO lc_limite
+          SEPARATED BY cc_pto.
+        gh_clie_ponto-limite = lc_limite.
+
+*         FINAL  WJUNIOR/COMPLEX - 09/04/2010
+
+*       Carrega tabela de transportadoras
+        CONDENSE gh_clie_ponto-transportadora NO-GAPS.
+        gh_stcd1_transp-stcd1 = gh_clie_ponto-transportadora(16).
+        APPEND gh_stcd1_transp.
+        CLEAR  gh_stcd1_transp.
+
+        APPEND gh_clie_ponto.
+        CLEAR  gh_clie_ponto.
+
+      ENDIF.
+
+    ENDLOOP.
+
+* Caso seja lido um arquivo SGTT
+  ELSEIF pc_file(4) EQ cc_sgtt.
+
+    LOOP AT gh_arquivo INTO gs_arquivo.
+
+*     Carregar Cliente
+      IF gs_arquivo-campo(4) EQ cc_cliem.
+
+        ADD 1 TO gn_posi1.
+
+        MOVE:
+          gn_posi1                 TO gh_sgtt_clie-posicao,
+          gs_arquivo-campo(5)      TO gh_sgtt_clie-tipo_reg,
+          gs_arquivo-campo+5(17)   TO gh_sgtt_clie-cnpj,
+          gs_arquivo-campo+22(40)  TO gh_sgtt_clie-razao_social,
+          gs_arquivo-campo+62(40)  TO gh_sgtt_clie-endereco,
+          gs_arquivo-campo+102(40) TO gh_sgtt_clie-bairro,
+          gs_arquivo-campo+142(10) TO gh_sgtt_clie-cep,
+          gs_arquivo-campo+152(40) TO gh_sgtt_clie-cidade,
+          gs_arquivo-campo+192(3)  TO gh_sgtt_clie-uf,
+          gs_arquivo-campo+195(30) TO gh_sgtt_clie-contato,
+          gs_arquivo-campo+225(3)  TO gh_sgtt_clie-ddd,
+          gs_arquivo-campo+228(10) TO gh_sgtt_clie-telefone,
+          gs_arquivo-campo+238(10) TO gh_sgtt_clie-fax,
+          gs_arquivo-campo+248(40) TO gh_sgtt_clie-e_mail,
+          gs_arquivo-campo+288(6)  TO gh_sgtt_clie-agencia,
+          gs_arquivo-campo+294(8)  TO gh_sgtt_clie-razao,
+          gs_arquivo-campo+302(14) TO gh_sgtt_clie-conta,
+          gs_arquivo-campo+316(17) TO gh_sgtt_clie-cliente,
+          gs_arquivo-campo+333(17) TO gh_sgtt_clie-transportadora.
+
+        APPEND gh_sgtt_clie.
+        CLEAR  gh_sgtt_clie.
+
+*     Carregar Loja
+      ELSEIF gs_arquivo-campo(4) EQ cc_loja.
+
+        MOVE:
+          gn_posi1                 TO gh_sgtt_loja-posicao,
+          gs_arquivo-campo(5)      TO gh_sgtt_loja-tipo_reg,
+          gs_arquivo-campo+5(17)   TO gh_sgtt_loja-cnpj,
+          gs_arquivo-campo+22(40)  TO gh_sgtt_loja-razao_social,
+          gs_arquivo-campo+62(30)  TO gh_sgtt_loja-nome_fant,
+          gs_arquivo-campo+92(20)  TO gh_sgtt_loja-mnemonico,
+          gs_arquivo-campo+112(40) TO gh_sgtt_loja-endereco,
+          gs_arquivo-campo+152(40) TO gh_sgtt_loja-bairro,
+          gs_arquivo-campo+192(10) TO gh_sgtt_loja-cep,
+          gs_arquivo-campo+202(40) TO gh_sgtt_loja-cidade,
+          gs_arquivo-campo+242(3)  TO gh_sgtt_loja-uf,
+          gs_arquivo-campo+245(30) TO gh_sgtt_loja-contato,
+          gs_arquivo-campo+275(3)  TO gh_sgtt_loja-ddd,
+          gs_arquivo-campo+278(10) TO gh_sgtt_loja-telefone,
+          gs_arquivo-campo+288(10) TO gh_sgtt_loja-fax,
+          gs_arquivo-campo+298(40) TO gh_sgtt_loja-e_mail,
+          gs_arquivo-campo+338(17) TO gh_sgtt_loja-cliente,
+          gs_arquivo-campo+355(17) TO gh_sgtt_loja-transportadora,
+*         INICIO WJUNIOR/COMPLEX 15/10/09
+          gs_arquivo-campo+372(4)  TO gh_sgtt_loja-tesou_proc.
+*         FINAL  WJUNIOR/COMPLEX 15/10/09
+
+*       Carrega tabela de transportadoras
+        CONDENSE gh_sgtt_loja-transportadora NO-GAPS.
+        gh_stcd1_transp-stcd1 = gh_sgtt_loja-transportadora(16).
+        APPEND gh_stcd1_transp.
+        CLEAR  gh_stcd1_transp.
+
+        APPEND gh_sgtt_loja.
+        CLEAR  gh_sgtt_loja.
+
+      ENDIF.
+
+    ENDLOOP.
+
+* Caso seja lido um arquivo DSC
+  ELSEIF pc_file(3) EQ cc_dsc.
+
+    LOOP AT gh_arquivo INTO gs_arquivo.
+
+*     Carregar Cliente
+      IF gs_arquivo-campo(4) EQ cc_cliem.
+
+        ADD 1 TO gn_posi1.
+
+        MOVE:
+          gn_posi1                 TO gh_dsc_clie-posicao,
+          gs_arquivo-campo(5)      TO gh_dsc_clie-tipo_reg,
+          gs_arquivo-campo+5(17)   TO gh_dsc_clie-cnpj,
+          gs_arquivo-campo+22(40)  TO gh_dsc_clie-razao_social,
+          gs_arquivo-campo+62(40)  TO gh_dsc_clie-endereco,
+          gs_arquivo-campo+102(40) TO gh_dsc_clie-bairro,
+          gs_arquivo-campo+142(10) TO gh_dsc_clie-cep,
+          gs_arquivo-campo+152(40) TO gh_dsc_clie-cidade,
+          gs_arquivo-campo+192(3)  TO gh_dsc_clie-uf,
+          gs_arquivo-campo+195(30) TO gh_dsc_clie-contato,
+          gs_arquivo-campo+225(3)  TO gh_dsc_clie-ddd,
+          gs_arquivo-campo+228(10) TO gh_dsc_clie-telefone,
+          gs_arquivo-campo+238(10) TO gh_dsc_clie-fax,
+          gs_arquivo-campo+248(40) TO gh_dsc_clie-e_mail,
+          gs_arquivo-campo+288(6)  TO gh_dsc_clie-agencia,
+          gs_arquivo-campo+294(8)  TO gh_dsc_clie-razao,
+          gs_arquivo-campo+302(14) TO gh_dsc_clie-conta,
+          gs_arquivo-campo+316(17) TO gh_dsc_clie-cliente,
+          gs_arquivo-campo+333(17) TO gh_dsc_clie-transportadora.
+
+        APPEND gh_dsc_clie.
+        CLEAR  gh_dsc_clie.
+
+*     Carregar Loja
+      ELSEIF gs_arquivo-campo(4) EQ cc_loja.
+
+        MOVE:
+          gn_posi1                 TO gh_dsc_loja-posicao,
+          gs_arquivo-campo(5)      TO gh_dsc_loja-tipo_reg,
+          gs_arquivo-campo+5(17)   TO gh_dsc_loja-cnpj,
+          gs_arquivo-campo+22(40)  TO gh_dsc_loja-razao_social,
+          gs_arquivo-campo+62(30)  TO gh_dsc_loja-nome_fantasia,
+          gs_arquivo-campo+92(20)  TO gh_dsc_loja-mnemonico,
+          gs_arquivo-campo+112(40) TO gh_dsc_loja-endereco,
+          gs_arquivo-campo+152(40) TO gh_dsc_loja-bairro,
+          gs_arquivo-campo+192(10) TO gh_dsc_loja-cep,
+          gs_arquivo-campo+202(40) TO gh_dsc_loja-cidade,
+          gs_arquivo-campo+242(3)  TO gh_dsc_loja-uf,
+          gs_arquivo-campo+245(30) TO gh_dsc_loja-contato,
+          gs_arquivo-campo+275(3)  TO gh_dsc_loja-ddd,
+          gs_arquivo-campo+278(10) TO gh_dsc_loja-telefone,
+          gs_arquivo-campo+288(10) TO gh_dsc_loja-fax,
+          gs_arquivo-campo+298(40) TO gh_dsc_loja-e_mail,
+          gs_arquivo-campo+338(17) TO gh_dsc_loja-cliente,
+          gs_arquivo-campo+355(17) TO gh_dsc_loja-transportadora,
+*         INICIO WJUNIOR/COMPLEX 15/10/09
+          gs_arquivo-campo+372(4)  TO gh_dsc_loja-tesou_proc.
+*         FINAL  WJUNIOR/COMPLEX 15/10/09
+
+*       Carrega tabela de transportadoras
+        CONDENSE gh_dsc_loja-transportadora NO-GAPS.
+        gh_stcd1_transp-stcd1 = gh_dsc_loja-transportadora(16).
+        APPEND gh_stcd1_transp.
+        CLEAR  gh_stcd1_transp.
+
+        APPEND gh_dsc_loja.
+        CLEAR  gh_dsc_loja.
+
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDIF.
+
+ENDFORM.                    " popula_tabelas_layout
+
+************************************************************************
+*** Form: seleciona_dados_transp
+*** Descrição: Seleciona dados da transportadora para validar CNPJ
+***
+*** Entrada: GH_STCD1_TRANSP
+*** Saída:   GH_LFA1_TRANSP
+***
+************************************************************************
+FORM seleciona_dados_transp .
+
+  CLEAR   gh_lfa1_transp.
+  REFRESH gh_lfa1_transp.
+
+* Seleciona LFA1
+  SELECT *
+    FROM lfa1
+    INTO TABLE gh_lfa1_transp
+     FOR ALL ENTRIES IN gh_stcd1_transp
+   WHERE stcd1 EQ gh_stcd1_transp-stcd1
+     AND ktokk EQ cc_pjur.
+
+  IF sy-subrc EQ 0.
+    SORT gh_lfa1_transp BY stcd1.
+  ENDIF.
+
+ENDFORM.                    " seleciona_dados_transp
+
+************************************************************************
+*** Form: process_main
+*** Descrição: Contém o processamento principal do programa
+***
+*** Entrada: Nenhuma
+*** Saída:   Nenhuma
+***
+************************************************************************
+FORM process_main .
+
+  CLEAR: gi_lidos, gi_sucessos, gi_errados.
+
+* INICIO WJUNIOR/COMPLEX 09/04/2010
+  CLEAR gc_numero.
+* FINAL  WJUNIOR/COMPLEX 09/04/2010
+
+  MOVE: pc_mestp TO gw_ctrl_idoc-mestyp,
+        pc_idoct TO gw_ctrl_idoc-idoctyp,
+        pc_direc TO gw_ctrl_idoc-direct,
+        pc_tabna TO gw_ctrl_idoc-tabnam,
+        pc_rcprt TO gw_ctrl_idoc-rcvprt,
+        pc_rcprn TO gw_ctrl_idoc-rcvprn,
+        pc_snpor TO gw_ctrl_idoc-sndpor,
+        pc_snprt TO gw_ctrl_idoc-sndprt,
+        pc_snprn TO gw_ctrl_idoc-sndprn.
+
+* Caso seja lido um arquivo Cliente
+  IF pc_file(4) EQ cc_clie.
+
+*   Se tiverem Clientes e Pontos
+    IF NOT gh_clie_clie[]  IS INITIAL AND
+       NOT gh_clie_ponto[] IS INITIAL.
+
+      LOOP AT gh_clie_clie.
+
+        LOOP AT gh_clie_ponto WHERE posicao EQ gh_clie_clie-posicao.
+
+          CLEAR: gc_idoc, gc_cliente, gc_fornec, gc_endereco, gc_ext_dstn,
+                 gc_parceiro.
+
+          ADD 1 TO gi_lidos.
+
+*         INICIO WJUNIOR/COMPLEX 15/10/09
+          gc_werks_trans = gh_clie_ponto-tesou_proc.
+*         FINAL  WJUNIOR/COMPLEX 15/10/09
+
+*         INICIO WJUNIOR/COMPLEX 09/04/2010
+          CLEAR gc_numero.
+          gc_numero      = gh_clie_ponto-numero.
+*         FINAL  WJUNIOR/COMPLEX 09/04/2010
+
+*         Limpa a header do segmento E1LFA1M e move os respectivos campos
+*         das tabelas internas gh_clie_clie e gh_clie_ponto para a estrutura
+*         E1LFA1M.
+          PERFORM insere_e1lfa1m_cli_ponto.
+
+*         Preenche o segmento E1LFM1M
+          PERFORM insere_e1lfm1m.
+
+*         INICIO WJUNIOR/COMPLEX - 21/08/09
+          IF NOT gh_clie_clie-cod_agencia  IS INITIAL  AND
+             NOT gh_clie_clie-cta_corrente IS INITIAL  AND
+             NOT gh_clie_clie-cod_agencia  EQ cc_00000 AND
+             NOT gh_clie_clie-cta_corrente EQ cc_000000000000000000.
+*         FINAL  WJUNIOR/COMPLEX - 21/08/09
+
+*           Preencher o segmento E1LFBKM
+            PERFORM insere_e1lfbkm USING gh_clie_clie-cod_agencia
+                                         gh_clie_clie-cta_corrente
+                                         gh_clie_clie-agencia
+                                         gh_clie_clie-segmento.
+
+*         INICIO WJUNIOR/COMPLEX - 21/08/09
+          ENDIF.
+*         FINAL  WJUNIOR/COMPLEX - 21/08/09
+
+*         Rotina para a execução do idoc de inclusão
+          PERFORM execucao_idoc.
+
+          COMMIT WORK.
+
+*         Caso gc_idoc tenha sido criado com sucesso
+          IF NOT gc_idoc IS INITIAL.
+
+*           Cria o cliente correspondente
+            PERFORM cria_cliente.
+
+*           Caso o cliente tenha sido criado com sucesso
+            IF NOT gc_cliente IS INITIAL.
+
+*             Altera dados do fornecedor correspondente
+              PERFORM altera_fornecedor.
+
+*             Se o fornecedor foi alterado corretamente
+              IF NOT gc_fornec IS INITIAL.
+
+                CLEAR gc_regiogroup.
+                TRANSLATE gh_clie_ponto-cliente_esp TO UPPER CASE.
+                IF gh_clie_ponto-cliente_esp(1) = cc_s.
+                  gc_regiogroup = cc_clip.
+                ELSEIF gh_clie_ponto-cliente_esp(1) = cc_n.
+                  gc_regiogroup = cc_clic.
+                ENDIF.
+
+                IF NOT gc_regiogroup IS INITIAL.
+*                 Perform para tratar o adicional de endereço
+                  PERFORM adicional_endereco.
+                ENDIF.
+              ENDIF.
+            ENDIF.
+          ENDIF.
+
+*         Adiciona 1 ao sucesso se não houve erros
+          IF NOT gc_idoc     IS INITIAL AND
+             NOT gc_cliente  IS INITIAL AND
+             NOT gc_fornec   IS INITIAL AND
+             NOT gc_endereco IS INITIAL.
+
+            ADD 1 TO gi_sucessos.
+
+*           Insere registro na tabela ZNUT0002
+            gc_arquivo = cc_c. "Clientes
+            PERFORM insere_znut0002 USING gc_arquivo.
+
+          ELSE.
+            ADD 1 TO gi_errados.
+          ENDIF.
+
+        ENDLOOP.
+
+      ENDLOOP.
+
+    ENDIF.
+
+* Caso seja lido um arquivo SGTT
+  ELSEIF pc_file(4) EQ cc_sgtt.
+
+*   Carrega Lojas
+    IF NOT gh_sgtt_clie[] IS INITIAL AND
+       NOT gh_sgtt_loja[] IS INITIAL.
+
+      LOOP AT gh_sgtt_clie.
+
+        LOOP AT gh_sgtt_loja WHERE posicao EQ gh_sgtt_clie-posicao.
+
+          CLEAR: gc_idoc, gc_cliente, gc_fornec, gc_endereco, gc_ext_dstn,
+                 gc_parceiro.
+
+          ADD 1 TO gi_lidos.
+
+*         INICIO WJUNIOR/COMPLEX 15/10/09
+          gc_werks_trans = gh_sgtt_loja-tesou_proc.
+*         FINAL  WJUNIOR/COMPLEX 15/10/09
+
+*         Limpa a header do segmento E1LFA1M e move os respectivos campos
+*         das tabelas internas gh_sgtt_clie e gh_sgtt_loja para a estrutura
+*         E1LFA1M.
+          PERFORM insere_e1lfa1m_sgtt_loja.
+
+*         Preenche o segmento E1LFM1M
+          PERFORM insere_e1lfm1m.
+
+*         INICIO WJUNIOR/COMPLEX - 21/08/09
+          IF NOT gh_sgtt_clie-agencia  IS INITIAL   AND
+             NOT gh_sgtt_clie-conta    IS INITIAL   AND
+             NOT gh_sgtt_clie-agencia  EQ cc_000000 AND
+             NOT gh_sgtt_clie-conta    EQ cc_00000000000000.
+*         FINAL  WJUNIOR/COMPLEX - 21/08/09
+
+*           Preencher o segmento E1LFBKM
+            PERFORM insere_e1lfbkm USING gh_sgtt_clie-agencia
+                                         gh_sgtt_clie-conta
+                                         space
+                                         space.
+
+*         INICIO WJUNIOR/COMPLEX - 21/08/09
+          ENDIF.
+*         FINAL  WJUNIOR/COMPLEX - 21/08/09
+
+*         Rotina para a execução do idoc de inclusão
+          PERFORM execucao_idoc.
+
+          COMMIT WORK.
+
+*         Caso gc_idoc tenha sido criado com sucesso
+          IF NOT gc_idoc IS INITIAL.
+
+*           Cria o cliente correspondente
+            PERFORM cria_cliente.
+
+*           Caso o cliente tenha sido criado com sucesso
+            IF NOT gc_cliente IS INITIAL.
+
+*             Altera dados do fornecedor correspondente
+              PERFORM altera_fornecedor.
+
+*             Se o fornecedor foi alterado corretamente
+              IF NOT gc_fornec IS INITIAL.
+
+                CLEAR gc_regiogroup.
+                gc_regiogroup = cc_clip.
+
+*               Perform para tratar o adicional de endereço
+                PERFORM adicional_endereco.
+
+              ENDIF.
+            ENDIF.
+          ENDIF.
+
+*         Adiciona 1 ao sucesso se não houve erros
+          IF NOT gc_idoc     IS INITIAL AND
+             NOT gc_cliente  IS INITIAL AND
+             NOT gc_fornec   IS INITIAL AND
+             NOT gc_endereco IS INITIAL.
+
+            ADD 1 TO gi_sucessos.
+
+*           Insere registro na tabela ZNUT0002
+            gc_arquivo = cc_s. "SGTT
+            PERFORM insere_znut0002 USING gc_arquivo.
+
+          ELSE.
+            ADD 1 TO gi_errados.
+          ENDIF.
+
+        ENDLOOP.
+
+      ENDLOOP.
+
+    ENDIF.
+
+* Caso seja lido um arquivo DSC
+  ELSEIF pc_file(3) EQ cc_dsc.
+
+*   Carrega Lojas
+    IF NOT gh_dsc_clie[] IS INITIAL AND
+       NOT gh_dsc_loja[] IS INITIAL.
+
+      LOOP AT gh_dsc_clie.
+
+        LOOP AT gh_dsc_loja WHERE posicao EQ gh_dsc_clie-posicao.
+
+          CLEAR: gc_idoc, gc_cliente, gc_fornec, gc_endereco, gc_ext_dstn,
+                 gc_parceiro.
+
+          ADD 1 TO gi_lidos.
+
+*         INICIO WJUNIOR/COMPLEX 15/10/09
+          gc_werks_trans = gh_dsc_loja-tesou_proc.
+*         FINAL  WJUNIOR/COMPLEX 15/10/09
+
+*         Limpa a header do segmento E1LFA1M e move os respectivos campos
+*         das tabelas internas gh_DSC_clie e gh_DSC_loja para a estrutura
+*         E1LFA1M.
+          PERFORM insere_e1lfa1m_dsc_loja.
+
+*         Preenche o segmento E1LFM1M
+          PERFORM insere_e1lfm1m.
+
+*         INICIO WJUNIOR/COMPLEX - 21/08/09
+          IF NOT gh_dsc_clie-agencia  IS INITIAL    AND
+             NOT gh_dsc_clie-conta    IS INITIAL    AND
+             NOT gh_dsc_clie-agencia  EQ cc_000000  AND
+             NOT gh_dsc_clie-conta    EQ cc_00000000000000.
+*         FINAL  WJUNIOR/COMPLEX - 21/08/09
+
+*           Preencher o segmento E1LFBKM
+            PERFORM insere_e1lfbkm USING gh_dsc_clie-agencia
+                                         gh_dsc_clie-conta
+                                         space
+                                         space.
+
+*         INICIO WJUNIOR/COMPLEX - 21/08/09
+          ENDIF.
+*         FINAL  WJUNIOR/COMPLEX - 21/08/09
+
+*         Rotina para a execução do idoc de inclusão
+          PERFORM execucao_idoc.
+
+          COMMIT WORK.
+
+*         Caso gc_idoc tenha sido criado com sucesso
+          IF NOT gc_idoc IS INITIAL.
+
+*           Cria o cliente correspondente
+            PERFORM cria_cliente.
+
+*           Caso o cliente tenha sido criado com sucesso
+            IF NOT gc_cliente IS INITIAL.
+
+*             Altera dados do fornecedor correspondente
+              PERFORM altera_fornecedor.
+
+*             Se o fornecedor foi alterado corretamente
+              IF NOT gc_fornec IS INITIAL.
+
+                CLEAR gc_regiogroup.
+                gc_regiogroup = cc_clip.
+
+*               Perform para tratar o adicional de endereço
+                PERFORM adicional_endereco.
+
+              ENDIF.
+            ENDIF.
+          ENDIF.
+
+*         Adiciona 1 ao sucesso se não houve erros
+          IF NOT gc_idoc     IS INITIAL AND
+             NOT gc_cliente  IS INITIAL AND
+             NOT gc_fornec   IS INITIAL AND
+             NOT gc_endereco IS INITIAL.
+
+            ADD 1 TO gi_sucessos.
+
+*           Insere registro na tabela ZNUT0002
+            gc_arquivo = cc_a. "DSC
+            PERFORM insere_znut0002 USING gc_arquivo.
+
+          ELSE.
+            ADD 1 TO gi_errados.
+          ENDIF.
+
+        ENDLOOP.
+
+      ENDLOOP.
+
+    ENDIF.
+
+  ENDIF.
+
+  PERFORM relatorio.
+
+ENDFORM.                    " process_main
+
+************************************************************************
+***      Form:  insere_e1lfa1m_cli_ponto
+***      Descrição: Realiza a inserção de dados no segmento E1LFA1M
+***
+***      Entrada: GH_CLIE_CLIE, GH_CLIE_PONTO
+***      Saida: E1LFA1M
+***
+************************************************************************
+FORM insere_e1lfa1m_cli_ponto.
+
+  CLEAR e1lfa1m.
+  CLEAR: gc_stcd1, gc_stcd1_trans.
+
+  MOVE:
+    cc_msgfn                          TO e1lfa1m-msgfn,
+    cc_empresa                        TO e1lfa1m-anred,
+    cc_zcli                           TO e1lfa1m-ktokk,
+    cc_br                             TO e1lfa1m-land1,
+    gh_clie_clie-nome_cli             TO e1lfa1m-name1,
+    gh_clie_ponto-razao(11)           TO e1lfa1m-kraus,
+    gh_clie_ponto-municipio           TO e1lfa1m-ort01,
+    gh_clie_ponto-bairro(35)          TO e1lfa1m-ort02,
+    gh_clie_ponto-cep                 TO e1lfa1m-pstlz,
+    gh_clie_ponto-uf                  TO e1lfa1m-regio,
+    gh_clie_clie-nome_cli(10)         TO e1lfa1m-sortl,
+    cc_p                              TO e1lfa1m-spras,
+    gh_clie_ponto-cnpj_ponto          TO e1lfa1m-stcd1,
+    gh_clie_ponto-ender_ponto         TO e1lfa1m-stras.
+
+* Checa o tamanho do campo CEP
+  IF NOT e1lfa1m-pstlz IS INITIAL.
+    CLEAR gi_tamanho.
+    gi_tamanho = STRLEN( e1lfa1m-pstlz ).
+    IF gi_tamanho = 8.
+      CONCATENATE e1lfa1m-pstlz(5) e1lfa1m-pstlz+5(3)
+             INTO e1lfa1m-pstlz
+        SEPARATED BY cc_traco.
+    ENDIF.
+  ENDIF.
+
+  gc_stcd1       = gh_clie_ponto-cnpj_ponto.
+  gc_stcd1_trans = gh_clie_ponto-transportadora(16).
+* INICIO WJUNIOR/COMPLEX 15/10/09
+*  gc_ext_dstn = gh_clie_ponto-centralizadora(4).
+* FINAL  WJUNIOR/COMPLEX 15/10/09
+
+* Armazena os registros do segmento E1LFA1M, na tabela interna
+* gh_edi_dd40
+  CLEAR gh_edi_dd40.
+
+  MOVE: cc_e1lfa1m TO gh_edi_dd40-segnam,
+        e1lfa1m    TO gh_edi_dd40-sdata.
+
+  APPEND gh_edi_dd40.
+
+ENDFORM.                    " insere_e1lfa1m_clie_ponto
+
+************************************************************************
+***      Form:  insere_e1lfa1m_sgtt_loja
+***      Descrição: Realiza a inserção de dados no segmento E1LFA1M
+***
+***      Entrada: GH_SGTT_CLIE, GH_SGTT_LOJA
+***      Saida: E1LFA1M
+***
+************************************************************************
+FORM insere_e1lfa1m_sgtt_loja.
+
+  CLEAR e1lfa1m.
+  CLEAR: gc_stcd1, gc_stcd1_trans.
+
+  MOVE:
+    cc_msgfn                          TO e1lfa1m-msgfn,
+    cc_empresa                        TO e1lfa1m-anred,
+    cc_zcli                           TO e1lfa1m-ktokk,
+    cc_br                             TO e1lfa1m-land1,
+    gh_sgtt_loja-razao_social(35)     TO e1lfa1m-name1,
+    gh_sgtt_clie-razao                TO e1lfa1m-kraus,
+    gh_sgtt_loja-cidade(35)           TO e1lfa1m-ort01,
+    gh_sgtt_loja-bairro(35)           TO e1lfa1m-ort02,
+    gh_sgtt_loja-cep                  TO e1lfa1m-pstlz,
+    gh_sgtt_loja-uf                   TO e1lfa1m-regio,
+    gh_sgtt_loja-razao_social(10)     TO e1lfa1m-sortl,
+    cc_p                              TO e1lfa1m-spras,
+    gh_sgtt_loja-cnpj(16)             TO e1lfa1m-stcd1,
+    gh_sgtt_loja-endereco(35)         TO e1lfa1m-stras.
+
+* Checa o tamanho do campo CEP
+  IF NOT e1lfa1m-pstlz IS INITIAL.
+    CLEAR gi_tamanho.
+    gi_tamanho = STRLEN( e1lfa1m-pstlz ).
+    IF gi_tamanho = 8.
+      CONCATENATE e1lfa1m-pstlz(5) e1lfa1m-pstlz+5(3)
+             INTO e1lfa1m-pstlz
+        SEPARATED BY cc_traco.
+    ENDIF.
+  ENDIF.
+
+  gc_stcd1       = gh_sgtt_loja-cnpj(16).
+  gc_stcd1_trans = gh_sgtt_loja-transportadora(16).
+
+* Armazena os registros do segmento E1LFA1M, na tabela interna
+* gh_edi_dd40
+  CLEAR gh_edi_dd40.
+
+  MOVE: cc_e1lfa1m TO gh_edi_dd40-segnam,
+        e1lfa1m    TO gh_edi_dd40-sdata.
+
+  APPEND gh_edi_dd40.
+
+ENDFORM.                    " insere_e1lfa1m_sgtt_loja
+
+************************************************************************
+***      Form:  insere_e1lfa1m_DSC_loja
+***      Descrição: Realiza a inserção de dados no segmento E1LFA1M
+***
+***      Entrada: GH_DSC_CLIE, GH_DSC_LOJA
+***      Saida: E1LFA1M
+***
+************************************************************************
+FORM insere_e1lfa1m_dsc_loja.
+
+  CLEAR e1lfa1m.
+  CLEAR: gc_stcd1, gc_stcd1_trans.
+
+  MOVE:
+    cc_msgfn                          TO e1lfa1m-msgfn,
+    cc_empresa                        TO e1lfa1m-anred,
+    cc_zcli                           TO e1lfa1m-ktokk,
+    cc_br                             TO e1lfa1m-land1,
+    gh_dsc_loja-razao_social(35)      TO e1lfa1m-name1,
+    gh_dsc_clie-razao                 TO e1lfa1m-kraus,
+    gh_dsc_loja-cidade(35)            TO e1lfa1m-ort01,
+    gh_dsc_loja-bairro(35)            TO e1lfa1m-ort02,
+    gh_dsc_loja-cep                   TO e1lfa1m-pstlz,
+    gh_dsc_loja-uf                    TO e1lfa1m-regio,
+    gh_dsc_loja-razao_social(10)      TO e1lfa1m-sortl,
+    cc_p                              TO e1lfa1m-spras,
+    gh_dsc_loja-cnpj(16)              TO e1lfa1m-stcd1,
+    gh_dsc_loja-endereco(35)          TO e1lfa1m-stras.
+
+* Checa o tamanho do campo CEP
+  IF NOT e1lfa1m-pstlz IS INITIAL.
+    CLEAR gi_tamanho.
+    gi_tamanho = STRLEN( e1lfa1m-pstlz ).
+    IF gi_tamanho = 8.
+      CONCATENATE e1lfa1m-pstlz(5) e1lfa1m-pstlz+5(3)
+             INTO e1lfa1m-pstlz
+        SEPARATED BY cc_traco.
+    ENDIF.
+  ENDIF.
+
+  gc_stcd1       = gh_dsc_loja-cnpj(16).
+  gc_stcd1_trans = gh_dsc_loja-transportadora(16).
+
+* Armazena os registros do segmento E1LFA1M, na tabela interna
+* gh_edi_dd40
+  CLEAR gh_edi_dd40.
+
+  MOVE: cc_e1lfa1m TO gh_edi_dd40-segnam,
+        e1lfa1m    TO gh_edi_dd40-sdata.
+
+  APPEND gh_edi_dd40.
+
+ENDFORM.                    " insere_e1lfa1m_sgtt_loja
+
+************************************************************************
+***      Form:  insere_e1lfm1m
+***      Descrição: Realiza a inserção de dados no segmento E1LFM1M
+***
+***      Entrada: ***
+***      Saida: E1LFM1M
+***
+************************************************************************
+FORM insere_e1lfm1m.
+
+  CLEAR e1lfm1m.
+
+  MOVE: cc_msgfn                          TO e1lfm1m-msgfn,
+        cc_cpra                           TO e1lfm1m-ekorg,
+        sy-datum                          TO e1lfm1m-erdat,
+        cc_rt                             TO e1lfm1m-vsbed,
+        cc_brl                            TO e1lfm1m-waers.
+
+  CLEAR gh_edi_dd40.
+
+  MOVE: cc_e1lfm1m TO gh_edi_dd40-segnam,
+        e1lfm1m TO gh_edi_dd40-sdata.
+
+  APPEND gh_edi_dd40.
+
+* INICIO WJUNIOR/COMPLEX 15/10/09
+*  CLEAR: gc_werks_trans, gc_parceiro.
+  CLEAR: gc_parceiro.
+* FINAL  WJUNIOR/COMPLEX 15/10/09
+
+* Verifica se o fornecedor têm transportadora
+  READ TABLE gh_lfa1_transp WITH KEY stcd1 = gc_stcd1_trans
+                                     BINARY SEARCH.
+  IF sy-subrc EQ 0.
+
+    gc_parceiro = cc_x.
+    PACK gh_lfa1_transp-lifnr TO gh_lfa1_transp-lifnr.
+    CONDENSE gh_lfa1_transp-lifnr NO-GAPS.
+*   INICIO WJUNIOR/COMPLEX 15/10/09
+*    gc_werks_trans = gh_lfa1_transp-lifnr(4).
+*   FINAL  WJUNIOR/COMPLEX 15/10/09
+
+*   Insere função de parceiro CI do fornecedor
+    CLEAR e1wyt3m.
+    MOVE:
+      cc_msgfn             TO e1wyt3m-msgfn,
+      cc_cpra              TO e1wyt3m-ekorg,
+      cc_ci                TO e1wyt3m-parvw,
+      sy-uname             TO e1wyt3m-ernam,
+      sy-datum             TO e1wyt3m-erdat,
+      gh_lfa1_transp-lifnr TO e1wyt3m-lifn2.
+
+    CLEAR gh_edi_dd40.
+
+    MOVE: cc_e1wyt3m TO gh_edi_dd40-segnam,
+          e1wyt3m    TO gh_edi_dd40-sdata.
+    APPEND gh_edi_dd40.
+
+  ELSE.
+
+    CLEAR gc_parceiro.
+
+  ENDIF.
+
+ENDFORM.                    " insere_e1lfm1m
+
+************************************************************************
+***      Form: insere_e1lfbkm
+***      Descrição: Realiza a inserção de dados no segmento E1LFBKM
+***
+***      Entrada: P_COD_AGENCIA   text
+***               P_CTA_CORRENTE  text
+***               P_AGENCIA       text
+***               P_SEGMENTO      text
+***
+***      Saida: E1LFBKM
+***
+************************************************************************
+FORM insere_e1lfbkm  USING  p_cod_agencia
+                            p_cta_corrente
+                            p_agencia
+                            p_segmento.
+
+* INICIO WJUNIOR/COMPLEX - 24/08/09
+  DATA: lc_agencia(4) TYPE c.
+* FINAL  WJUNIOR/COMPLEX - 24/08/09
+
+  CLEAR e1lfbkm.
+
+  MOVE: cc_msgfn                      TO e1lfbkm-msgfn,
+        cc_br                         TO e1lfbkm-banks,
+*       INICIO WJUNIOR/COMPLEX - 21/08/09
+*        p_cod_agencia                 TO e1lfbkm-bankl,
+*       FINAL  WJUNIOR/COMPLEX - 21/08/09
+        p_cta_corrente                TO e1lfbkm-bankn,
+        p_agencia                     TO e1lfbkm-brnch,
+        p_segmento                    TO e1lfbkm-bgrup.
+
+* INICIO WJUNIOR/COMPLEX - 21/08/09
+  CLEAR lc_agencia.
+  PACK p_cod_agencia(4) TO lc_agencia.
+  CONDENSE lc_agencia NO-GAPS.
+  CONCATENATE cc_237 lc_agencia INTO e1lfbkm-bankl.
+* FINAL  WJUNIOR/COMPLEX - 21/08/09
+
+  IF NOT e1lfbkm-bankl IS INITIAL.
+    CLEAR bnka.
+
+    SELECT SINGLE *
+      FROM bnka
+      INTO bnka
+     WHERE banks = 'BR'
+       AND bankl = e1lfbkm-bankl.
+
+    IF sy-subrc EQ 0.
+      MOVE-CORRESPONDING bnka TO e1lfbkm.
+    ENDIF.
+  ENDIF.
+
+  CLEAR gh_edi_dd40.
+
+  MOVE: cc_e1lfbkm TO gh_edi_dd40-segnam,
+        e1lfbkm    TO gh_edi_dd40-sdata.
+
+  APPEND gh_edi_dd40.
+
+ENDFORM.                    " insere_e1lfbkm
+
+************************************************************************
+***      Form:  execução_Idoc
+***      Descrição: Esta rotina realiza a execução do Idoc,
+***                 utilizando-se da Função IDOC_INBOUND_SINGLE
+***
+***      Entrada: Nenhuma
+***      Saida: Nenhuma
+************************************************************************
+FORM execucao_idoc .
+
+  DATA:
+    lc_msg_id        TYPE t100-arbgb,
+    lc_msg_no        TYPE t100-msgnr,
+    lc_msg_var1      TYPE balm-msgv1,
+    lc_msg_var2      TYPE balm-msgv2,
+    lc_msg_var3      TYPE balm-msgv3,
+    lc_msg_var4      TYPE balm-msgv4,
+    lc_msg_text(200) TYPE c.
+
+  CLEAR: gi_number, gs_lfa1.
+
+  CALL FUNCTION 'IDOC_INBOUND_SINGLE'
+    EXPORTING
+      pi_idoc_control_rec_40  = gw_ctrl_idoc
+    IMPORTING
+      pe_idoc_number          = gi_number
+    TABLES
+      pt_idoc_data_records_40 = gh_edi_dd40
+    EXCEPTIONS
+      idoc_not_saved          = 1
+      OTHERS                  = 2.
+
+  IF sy-subrc EQ 0.
+
+    CLEAR gc_status.
+*   Lê a tabela edidc
+    SELECT SINGLE status
+      FROM edidc
+      INTO gc_status
+     WHERE docnum EQ gi_number.
+
+    IF sy-subrc EQ 0.
+
+*     Lê a tabela edids
+      SELECT * UP TO 1 ROWS
+        FROM edids
+        INTO edids
+       WHERE docnum EQ gi_number
+         AND status EQ gc_status.
+      ENDSELECT.
+
+      IF sy-subrc EQ 0.
+
+        lc_msg_id   = edids-stamid.
+        lc_msg_no   = edids-stamno.
+        lc_msg_var1 = edids-stapa1.
+        lc_msg_var2 = edids-stapa2.
+        lc_msg_var3 = edids-stapa3.
+        lc_msg_var4 = edids-stapa4.
+
+*       Prepara a mensagem
+        CALL FUNCTION 'MESSAGE_PREPARE'
+          EXPORTING
+            language               = 'P'
+            msg_id                 = lc_msg_id
+            msg_no                 = lc_msg_no
+            msg_var1               = lc_msg_var1
+            msg_var2               = lc_msg_var2
+            msg_var3               = lc_msg_var3
+            msg_var4               = lc_msg_var4
+          IMPORTING
+            msg_text               = lc_msg_text
+          EXCEPTIONS
+            function_not_completed = 1
+            message_not_found      = 2
+            OTHERS                 = 3.
+        IF sy-subrc <> 0.
+          CLEAR lc_msg_text.
+        ENDIF.
+
+*       Lê o status para verificar se foi OK
+*       Se status = 53, IDOC = OK
+        IF gc_status = cc_53.
+
+          gc_idoc = cc_x.
+
+*         Seleciona o fornecedor criado
+          SELECT * UP TO 1 ROWS
+            INTO gs_lfa1
+            FROM lfa1
+           WHERE stcd1 EQ gc_stcd1.
+          ENDSELECT.
+
+          IF sy-subrc NE 0.
+            CLEAR: gs_lfa1, gc_lifnr.
+          ELSE.
+            gc_lifnr = gs_lfa1-lifnr.
+
+*           Se o fornecedor foi criado, exibe mensagem
+*           se o parceiro não foi criado.
+            IF gc_parceiro IS INITIAL.
+*             Preenche tabela de resultado
+              CONCATENATE text-004 gc_lifnr text-013
+                     INTO gh_result-msg
+                SEPARATED BY space.
+              APPEND gh_result.
+            ENDIF.
+          ENDIF.
+
+*       Senão, IDOC = ERRO
+        ELSE.
+
+          CLEAR gc_idoc.
+
+*         Preenche tabela de resultado
+          CONCATENATE text-006 gi_number cc_traco lc_msg_text
+                 INTO gh_result-msg
+            SEPARATED BY space.
+          APPEND gh_result.
+
+        ENDIF.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+
+  CLEAR   gh_edi_dd40.
+  REFRESH gh_edi_dd40.
+
+ENDFORM.                    " execução_Idoc
+
+************************************************************************
+***      Form: cria_cliente
+***      Cria o cliente correspondente
+***
+***      Entrada: Nenhuma
+***      Saida:   Nenhuma
+***
+************************************************************************
+FORM cria_cliente.
+
+* Tabelas e estruturas locais
+  DATA:
+    ls_kna1      TYPE kna1,
+    ls_knvv      TYPE knvv,
+    lw_xknvp     TYPE TABLE OF fknvp WITH HEADER LINE.
+
+  DATA: lc_kunnr LIKE kna1-kunnr.
+
+  CLEAR gc_kunnr.
+* Seleciona o último cliente criado dentro do range de seleção
+  SELECT MAX( kunnr )
+    INTO gc_kunnr
+    FROM kna1
+   WHERE kunnr IN s_kunnr.
+
+  IF sy-subrc EQ 0.
+*   Adiciona 1 ao cliente para criar um novo.
+    ADD 1 TO gc_kunnr.
+  ELSE.
+    gc_kunnr = s_kunnr-low.
+  ENDIF.
+
+* Preenche com zeros a esquerda
+  UNPACK gc_kunnr TO gc_kunnr.
+
+  IF NOT gc_kunnr IS INITIAL.
+
+*   Carrega os dados do novo cliente com dados do fornecedor
+*   KNA1 - Dados Mestre
+    ls_kna1-mandt = sy-mandt.
+    ls_kna1-kunnr = gc_kunnr.
+    ls_kna1-land1 = gs_lfa1-land1.
+    ls_kna1-ktokd = cc_zcli.
+    ls_kna1-anred = cc_empresa.
+    ls_kna1-name1 = gs_lfa1-name1.
+    ls_kna1-ort01 = gs_lfa1-ort01.
+    ls_kna1-ort02 = gs_lfa1-ort02.
+    ls_kna1-pstlz = gs_lfa1-pstlz.
+    ls_kna1-regio = gs_lfa1-regio.
+    ls_kna1-sortl = gs_lfa1-sortl.
+    ls_kna1-spras = gs_lfa1-spras.
+    ls_kna1-stcd1 = gs_lfa1-stcd1.
+    ls_kna1-stras = gs_lfa1-stras.
+    ls_kna1-adrnr = gs_lfa1-adrnr.
+    ls_kna1-lifnr = gs_lfa1-lifnr.
+    ls_kna1-txjcd = gs_lfa1-txjcd.
+    ls_kna1-duefl = cc_x.
+
+*   KNVV - Dados Org. Vendas
+    ls_knvv-mandt = sy-mandt.
+    ls_knvv-kunnr = gc_kunnr.
+    ls_knvv-vkorg = cc_0002.
+    ls_knvv-vtweg = cc_02.
+    ls_knvv-spart = cc_02.
+    ls_knvv-vsbed = cc_rt.
+    ls_knvv-ernam = sy-uname.
+    ls_knvv-erdat = sy-datum.
+
+*   KNVP - Dados Parceiro CI
+    CLEAR gc_parceiro.
+*   Verifica se o fornecedor têm transportadora
+    READ TABLE gh_lfa1_transp WITH KEY stcd1 = gc_stcd1_trans
+                                       BINARY SEARCH.
+    IF sy-subrc EQ 0.
+
+      gc_parceiro = cc_x.
+
+      lw_xknvp-kunnr = gc_kunnr.
+      lw_xknvp-vkorg = cc_0002.
+      lw_xknvp-vtweg = cc_02.
+      lw_xknvp-spart = cc_02.
+      lw_xknvp-parvw = cc_sp.
+      lw_xknvp-lifnr = gh_lfa1_transp-lifnr.
+      APPEND lw_xknvp.
+
+    ELSE.
+
+      CLEAR gc_parceiro.
+
+    ENDIF.
+
+    CLEAR lc_kunnr.
+
+*   Executa função para criar o cliente
+    CALL FUNCTION 'SD_CUSTOMER_MAINTAIN_ALL'
+      EXPORTING
+        i_kna1                        = ls_kna1
+        i_knvv                        = ls_knvv
+        i_force_external_number_range = 'X'
+      IMPORTING
+        e_kunnr                       = lc_kunnr
+      TABLES
+        t_xknvp                       = lw_xknvp
+      EXCEPTIONS
+        client_error                  = 1
+        kna1_incomplete               = 2
+        knb1_incomplete               = 3
+        knb5_incomplete               = 4
+        knvv_incomplete               = 5
+        kunnr_not_unique              = 6
+        sales_area_not_unique         = 7
+        sales_area_not_valid          = 8
+        insert_update_conflict        = 9
+        number_assignment_error       = 10
+        number_not_in_range           = 11
+        number_range_not_extern       = 12
+        number_range_not_intern       = 13
+        account_group_not_valid       = 14
+        parnr_invalid                 = 15
+        bank_address_invalid          = 16
+        tax_data_not_valid            = 17
+        no_authority                  = 18
+        company_code_not_unique       = 19
+        dunning_data_not_valid        = 20
+        knb1_reference_invalid        = 21
+        cam_error                     = 22
+        OTHERS                        = 23.
+
+*   Verifica se o cliente foi criado
+    IF sy-subrc NE 0.
+
+      CLEAR gc_cliente.
+
+*     Preenche tabela de resultado
+      CONCATENATE text-004 gc_lifnr text-005
+             INTO gh_result-msg
+        SEPARATED BY space.
+      APPEND gh_result.
+
+    ELSE.
+
+      gc_cliente = cc_x.
+
+*     Se o cliente foi criado, exibe mensagem
+*     se o parceiro não foi criado.
+      IF gc_parceiro IS INITIAL.
+*       Preenche tabela de resultado
+        CONCATENATE text-014 gc_kunnr text-013
+               INTO gh_result-msg
+          SEPARATED BY space.
+        APPEND gh_result.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.                    " cria_cliente
+
+************************************************************************
+***      Form: altera_fornecedor
+***      Altera dados do fornecedor correspondente
+***
+***      Entrada: Nenhuma
+***      Saida:   Nenhuma
+***
+************************************************************************
+FORM altera_fornecedor .
+
+* Tabelas e estruturas locais
+  DATA:
+    ls_lfb1  TYPE lfb1,
+    ls_lfm1  TYPE lfm1,
+    ls_ylfa1 TYPE lfa1,
+    ls_ylfb1 TYPE lfb1,
+    ls_ylfm1 TYPE lfm1,
+    lw_xlfas TYPE TABLE OF flfas,
+    lw_xlfb5 TYPE TABLE OF flfb5,
+    lw_xlfbk TYPE TABLE OF flfbk,
+    lw_xlfza TYPE TABLE OF flfza,
+    lw_ylfas TYPE TABLE OF flfas,
+    lw_ylfb5 TYPE TABLE OF flfb5,
+    lw_ylfbk TYPE TABLE OF flfbk,
+    lw_ylfza TYPE TABLE OF flfza.
+
+  SELECT * UP TO 1 ROWS
+    INTO ls_lfm1
+    FROM lfm1
+   WHERE lifnr EQ gc_lifnr.
+  ENDSELECT.
+
+  IF sy-subrc EQ 0.
+
+*   Altera o fornecedor
+    gs_lfa1-kunnr = gc_kunnr.
+    ls_lfm1-kzret = cc_x.
+
+*   Executa a função para alterar o fornecedor
+    CALL FUNCTION 'VENDOR_UPDATE'
+      EXPORTING
+        i_lfa1  = gs_lfa1
+        i_lfb1  = ls_lfb1
+        i_lfm1  = ls_lfm1
+        i_ylfa1 = ls_ylfa1
+        i_ylfb1 = ls_ylfb1
+        i_ylfm1 = ls_ylfm1
+      TABLES
+        t_xlfas = lw_xlfas
+        t_xlfb5 = lw_xlfb5
+        t_xlfbk = lw_xlfbk
+        t_xlfza = lw_xlfza
+        t_ylfas = lw_ylfas
+        t_ylfb5 = lw_ylfb5
+        t_ylfbk = lw_ylfbk
+        t_ylfza = lw_ylfza.
+
+*   Seleciona o fornecedor criado
+    CLEAR gs_lfa1.
+    SELECT SINGLE *
+      INTO gs_lfa1
+      FROM lfa1
+     WHERE lifnr EQ gc_lifnr.
+
+    IF sy-subrc NE 0 OR gs_lfa1-kunnr IS INITIAL.
+
+      CLEAR: gs_lfa1, gc_fornec.
+
+*     Preenche tabela de resultado
+      CONCATENATE text-004 gc_lifnr text-007 gc_kunnr
+             INTO gh_result-msg
+        SEPARATED BY space.
+      APPEND gh_result.
+
+    ELSE.
+
+      gc_fornec = cc_x.
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                    " altera_fornecedor
+
+************************************************************************
+***      Form:  adicional_endereco
+***      Descrição: Insere campo REGIOGROUP no endereço
+***
+***      Entrada: GC_REGIOGROUP
+***      Saida: ***
+***
+************************************************************************
+FORM adicional_endereco .
+
+  DATA: lh_gi_nunfornec LIKE bapi4001_1-objkey,
+        lh_adrc         TYPE adrc.
+
+  CLEAR gs_adrnr.
+
+* Se tiver fornecedor
+  IF NOT gs_lfa1-lifnr IS INITIAL.
+
+    gs_adrnr = gs_lfa1-adrnr.
+
+    SELECT date_from nation UP TO 1 ROWS
+      FROM adrc
+      INTO (lh_adrc-date_from, lh_adrc-nation )
+     WHERE addrnumber = gs_adrnr.
+    ENDSELECT.
+
+    IF sy-subrc EQ 0.
+
+      gh_bapiad1vl-addr_vers  = lh_adrc-nation.
+      gh_bapiad1vl-from_date  = lh_adrc-date_from.
+      gh_bapiad1vl-regiogroup = gc_regiogroup.
+*     INICIO WJUNIOR/COMPLEX 09/04/2010
+      IF NOT gc_numero IS INITIAL.
+        gh_bapiad1vl-house_no = gc_numero.
+      ENDIF.
+*     FINAL  WJUNIOR/COMPLEX 09/04/2010
+      APPEND gh_bapiad1vl.
+
+      lh_gi_nunfornec = gs_lfa1-lifnr.
+
+      gh_bapiad1vl_x-addr_vers  = cc_x.
+      gh_bapiad1vl_x-from_date  = cc_x.
+      gh_bapiad1vl_x-regiogroup = cc_x.
+*     INICIO WJUNIOR/COMPLEX 09/04/2010
+      IF NOT gc_numero IS INITIAL.
+        gh_bapiad1vl_x-house_no = cc_x.
+      ENDIF.
+*     FINAL  WJUNIOR/COMPLEX 09/04/2010
+      gh_bapiad1vl_x-updateflag = cc_u.
+      APPEND gh_bapiad1vl_x.
+
+      CALL FUNCTION 'BAPI_ADDRESSORG_CHANGE'
+        EXPORTING
+          obj_type    = cc_lfa11
+          obj_id      = lh_gi_nunfornec
+        TABLES
+          bapiad1vl   = gh_bapiad1vl
+          bapiad1vl_x = gh_bapiad1vl_x
+          return      = gh_return_end.
+
+      IF gh_return_end-type EQ cc_e.
+
+*       Preenche tabela de resultado
+        CONCATENATE text-004 gc_lifnr text-008 gc_regiogroup
+               INTO gh_result-msg
+          SEPARATED BY space.
+        APPEND gh_result.
+
+      ELSE.
+
+        gc_endereco = cc_x.
+
+      ENDIF.
+
+    ENDIF.
+  ENDIF.
+
+  CLEAR: gh_bapiad1vl,
+         gh_bapiad1vl_x.
+
+  REFRESH: gh_bapiad1vl,
+           gh_bapiad1vl_x.
+
+ENDFORM.                    " adicional_endereco
+
+************************************************************************
+***      Form:  insere_znut0002
+***      Descrição: Insere registro na tabela ZNUT0002
+***
+***      Entrada: Nenhuma
+***      Saida:   Nenhuma
+***
+************************************************************************
+FORM insere_znut0002 USING p_arquivo.
+
+* CLIENTES
+  IF p_arquivo = cc_c.
+
+    znut0002-cliente     = gs_lfa1-lifnr. "Cliente ( Fornecedor )
+    znut0002-tesou_proc  = gc_werks_trans."Tesouraria ou Processadora
+    znut0002-tp_cliente  = gc_regiogroup. "Tipo de Cliente
+*   INICIO WJUNIOR/COMPLEX 15/10/09
+*    znut0002-ext_dstn    = gc_ext_dstn.   "Extensão DSTN
+    SELECT ext_dstn UP TO 1 ROWS
+      INTO gc_ext_dstn
+      FROM znut0001
+     WHERE tesouraria EQ znut0002-tesou_proc.
+    ENDSELECT.
+    IF sy-subrc EQ 0.
+      znut0002-ext_dstn    = gc_ext_dstn.   "Extensão DSTN
+    ENDIF.
+*   FINAL  WJUNIOR/COMPLEX 15/10/09
+    INSERT znut0002.
+    IF sy-subrc EQ 0.
+      COMMIT WORK.
+    ELSE.
+      ROLLBACK WORK.
+    ENDIF.
+
+* SGTT OU DSC
+  ELSEIF ( p_arquivo = cc_s OR p_arquivo = cc_a ).
+
+    znut0002-cliente     = gs_lfa1-lifnr.  "Cliente ( Fornecedor )
+    znut0002-tesou_proc  = gc_werks_trans. "Tesouraria ou Processadora
+    znut0002-tp_cliente  = gc_regiogroup.  "Tipo de Cliente
+
+    INSERT znut0002.
+    IF sy-subrc EQ 0.
+      COMMIT WORK.
+    ELSE.
+      ROLLBACK WORK.
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                    " insere_znut0002
+
+************************************************************************
+***      Form:  relatorio
+***      Descrição: Exibe um relatorio de totais
+***
+***      Entrada: Nenhuma
+***      Saida:   Nenhuma
+***
+************************************************************************
+FORM relatorio .
+
+  LOCAL gw_log.
+
+* Manda resultados dos erros para a LOG
+  LOOP AT gh_result.
+    add_log gh_result-msg 1.
+  ENDLOOP.
+
+*-Primeira linha (uline)
+  log_uline 1.
+
+*-Imprime o nº de registros lidos
+  gc_text = gi_lidos.
+*-Quantidade de registros lidos:
+  CONCATENATE text-009 gc_text INTO gc_text SEPARATED BY space.
+  add_log gc_text 1.
+
+*-Imprime o nº de registros processados com sucesso
+  gc_text = gi_sucessos.
+*-Quantidade de registros processados:
+  CONCATENATE text-010 gc_text INTO gc_text SEPARATED BY space.
+  add_log gc_text 1.
+
+*-Imprime o nº de registros processados com erro
+  gc_text = gi_errados.
+*-Quantidade de registros com erro:
+  CONCATENATE text-011 gc_text INTO gc_text SEPARATED BY space.
+  add_log gc_text 1.
+
+*-Classificar saída para evitar redundância de texto
+  SORT gw_log BY counter lglvl text AS TEXT.
+  DELETE ADJACENT DUPLICATES FROM gw_log COMPARING counter lglvl text.
+*-Classificar por ordem de saída
+  SORT gw_log BY tabix.
+
+*-Exibir log
+  LOOP AT gw_log INTO gs_log.
+    log gs_log-lglvl gs_log-text.
+  ENDLOOP.
+
+ENDFORM.                    " relatorio
+
+************************************************************************
+***      Form:  move_datafile
+***      Descrição: Move o arquivo processado para uma pasta de Backup
+***
+***      Entrada: Nenhuma
+***      Saida:   Nenhuma
+************************************************************************
+FORM move_datafile .
+
+  CALL FUNCTION 'Z_B_MOVE_DATAFILES'
+    EXPORTING
+      file_name    = pc_file
+      path_name    = pc_path
+      dest_name    = pc_back
+      timestamp_lo = gc_timestamp_lo
+      timestamp_hi = gc_timestamp_hi.
+
+ENDFORM.                    " move_datafile
+
+************************************************************************
+***      Form: done_interface
+***      Descrição: Finaliza a interface da PICS
+***
+***      Entrada: Nenhuma
+***      Saida:   Nenhuma
+***
+************************************************************************
+FORM done_interface .
+
+  CALL FUNCTION 'Z_B_DONE_INTERFACE'.
+
+* Finaliza log
+  log_close.
+
+ENDFORM.                    " done_interface
